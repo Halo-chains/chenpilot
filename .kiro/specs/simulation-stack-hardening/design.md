@@ -13,6 +13,7 @@ The Simulation Stack Hardening feature transforms the existing simulation infras
 5. **High Fidelity**: Ensure simulation results closely match real network behavior
 6. **Performance**: Maintain sub-200ms execution times for complex operations
 7. **Production Readiness**: Provide validation, safety checks, and serialization for production use
+8. **Entity Integrity**: Resolve all assets, contracts, and protocol capabilities through authoritative registries, reject hallucinated or ambiguous entities, require explicit user selection for ambiguous symbols, and include registry provenance/freshness in approval data.
 
 ### Key Architectural Principles
 
@@ -21,19 +22,8 @@ The Simulation Stack Hardening feature transforms the existing simulation infras
 - **Minimal Overhead**: Deterministic mode and tracing add <10% performance overhead when disabled
 - **Type Safety**: Comprehensive TypeScript types for all new data structures
 - **Testability**: All components designed for property-based testing with clear invariants
-- **Registry Resolution**: Resolve every executable entity through an authoritative registry and bind the resolved identifier into the plan before simulation or execution.
-- **Authority Binding**: Human-supplied tickers, issuer names, contract addresses, networks, and adapter capabilities SHALL NOT be used directly for execution; only registry-resolved identifiers SHALL be bound into the plan.
 
 ## Architecture
-
-### Registry Resolution
-
-Every executable entity (asset ticker, issuer, contract address, network, or adapter capability) MUST be resolved through an authoritative registry before entering the simulation or execution plan. A resolved registry entry SHALL be bound into the plan as the canonical identifier, and the raw human-supplied symbol or address SHALL NOT be used for execution.
-
-- **Resolution Requirement**: Unresolved names cannot reach simulation or execution. If a registry lookup returns no match or the registry is unavailable, the request is rejected with a descriptive `RESOLUTION_ERROR`.
-- **Ambiguity Handling**: Ambiguous symbols require explicit user selection. When a registry returns multiple candidates, the engine SHALL return the candidates and pause resolution until the user selects a single canonical identifier.
-- **Provenance and Freshness**: Registry provenance and freshness are included in approval data. Each bound identifier SHALL record the registry source, registry version, resolved identifier, resolved timestamp, and freshness status. Stale or unverifiable registrations SHALL be treated as unresolved.
-- **Adapter Capabilities**: Protocol and network capabilities are also resolved from registries; a capability not present in the registry SHALL NOT be advertised or simulated.
 
 ### Component Overview
 
@@ -60,6 +50,7 @@ graph TB
 
     SE --> CV[ConfigValidator]
     SE --> PG[PreviewGenerator]
+    SE --> ER[EntityResolver]
 ```
 
 ### Component Responsibilities
@@ -67,7 +58,6 @@ graph TB
 | Component                        | Responsibility                                     | New/Modified |
 | -------------------------------- | -------------------------------------------------- | ------------ |
 | `SimulationEngine`               | Orchestration, mode management, request processing | Modified     |
-| `RegistryResolver`               | Entity resolution, provenance and freshness validation, identifier binding | New          |
 | `DeterministicMode`              | Seeded RNG management, deterministic execution     | New          |
 | `FailureInjector`                | Failure scenario configuration and injection       | New          |
 | `ExecutionTracer`                | Trace capture, recording, and management           | New          |
@@ -85,6 +75,7 @@ graph TB
 | `JSONSerializer`                 | Trace and snapshot serialization                   | New          |
 | `ConfigValidator`                | Configuration validation and safety checks         | New          |
 | `PreviewGenerator`               | Human-readable execution previews                  | New          |
+| `EntityResolver`                 | Resolve assets, contracts, and protocols via authoritative registries; reject hallucinated or ambiguous entities; require explicit user selection for ambiguous symbols; include registry provenance/freshness in approval data | New          |
 
 ## Components and Interfaces
 
@@ -975,7 +966,7 @@ After analyzing all 84 acceptance criteria, I identified the following redundanc
 - Criteria 7.2, 7.4, 7.5 all test that previews contain required fields
 - **Resolution**: Combine into single preview completeness property
 
-After reflection, 84 criteria reduce to 53 unique properties.
+After reflection, 84 criteria reduce to 52 unique properties.
 
 ### Property 1: Deterministic Trace Reproduction
 
@@ -1289,12 +1280,6 @@ _For any_ simulation run without a provided seed, the Simulation_Engine SHALL ge
 
 **Validates: Requirements 1.3**
 
-### Property 53: Registry Resolution Before Execution
-
-_For any_ executable entity referenced by user input (asset ticker, issuer, contract address, network, or adapter capability), the Simulation_Engine SHALL resolve it through an authoritative registry and bind the resolved identifier into the plan before simulation or execution. If the registry returns multiple candidates, execution SHALL pause until explicit user selection; unresolvable, stale, or unverifiable entries SHALL be rejected.
-
-**Validates: Registry acceptance criteria**
-
 ## Error Handling
 
 ### Error Categories
@@ -1428,10 +1413,6 @@ All errors SHALL include:
 ### Overview
 
 The simulation stack hardening feature requires a dual testing approach combining property-based testing for universal correctness guarantees with example-based testing for specific scenarios and integration points.
-
-### Adversarial Registry Tests
-
-Adversarial tests SHALL cover look-alike symbols and fabricated addresses. Tests SHALL assert that a ticker or issuer resembling a known asset (e.g. homoglyph or similar casing) is not silently accepted, and that a fabricated contract address not present in the registry is rejected before simulation or execution. If a look-alike symbol resolves to multiple candidates, the test SHALL verify that the engine requires explicit user selection and does not pick one automatically.
 
 ### Property-Based Testing
 
