@@ -82,14 +82,6 @@ pub struct RiskLimits {
     pub max_single_counterparty: i128,
 }
 
-#[contracttype]
-#[derive(Clone)]
-pub struct StrategyRegistration {
-    pub strategy_address: Address,
-    pub provenance: BytesN<32>,
-    pub registered_at: u64,
-}
-
 // ─── Storage Keys ─────────────────────────────────────────────────────────
 
 #[contracttype]
@@ -106,7 +98,7 @@ pub enum DataKey {
     StrategyHealth(BytesN<32>),
     DisabledStrategy(BytesN<32>),
     ActiveStrategies,
-    StrategyRegistration(Address),
+    AuthorizedStrategies,
 }
 
 // ─── Events ───────────────────────────────────────────────────────────────
@@ -138,8 +130,6 @@ pub struct EvtStrategyRegistered {
     pub actor: Address,
     pub strategy_id: BytesN<32>,
     pub risk_level: RiskLevel,
-    pub provenance: BytesN<32>,
-    pub registered_at: u64,
 }
 
 #[contracttype]
@@ -236,6 +226,9 @@ impl StrategyBoundaryContract {
         };
         env.storage().instance().set(&DataKey::RiskLimits, &default_risk);
 
+        // Initialize authorized strategy registry
+        env.storage().instance().set(&DataKey::AuthorizedStrategies, &Vec::<Address>::new(&env));
+
         env.events().publish(
             (EVT_INIT,),
             EvtInit {
@@ -248,27 +241,6 @@ impl StrategyBoundaryContract {
         );
     }
 
-    // ─── Registry Management ──────────────────────────────────────────────
-
-    pub fn register_strategy_contract(env: Env, strategy_address: Address, provenance: BytesN<32>) {
-        Self::check_strategy_admin(&env);
-        let registration = StrategyRegistration {
-            strategy_address: strategy_address.clone(),
-            provenance: provenance.clone(),
-            registered_at: env.ledger().timestamp(),
-        };
-        env.storage().instance().set(&DataKey::StrategyRegistration(strategy_address.clone()), &registration);
-    }
-
-    pub fn unregister_strategy_contract(env: Env, strategy_address: Address) {
-        Self::check_strategy_admin(&env);
-        env.storage().instance().remove(&DataKey::StrategyRegistration(strategy_address));
-    }
-
-    fn get_strategy_registration(env: &Env, strategy_address: &Address) -> Option<StrategyRegistration> {
-        env.storage().instance().get(&DataKey::StrategyRegistration(strategy_address.clone()))
-    }
-
     // ─── Strategy Management ───────────────────────────────────────────────
 
     pub fn register_strategy(
@@ -278,10 +250,6 @@ impl StrategyBoundaryContract {
     ) {
         Self::check_strategy_admin(&env);
 
-        // Resolve contract address through authoritative registry
-        let registration = Self::get_strategy_registration(&env, &metadata.strategy_address)
-            .expect("Strategy contract address is not registered");
-
         // Validate audit report is current
         if env.ledger().timestamp() > metadata.audit_expiry {
             panic!("Audit report expired");
@@ -289,6 +257,14 @@ impl StrategyBoundaryContract {
 
         // Verify auditor signature (simplified - in production, verify against known auditors)
         Self::verify_audit_signature(&env, &metadata, auditor_signature);
+
+        // Ensure strategy address is authorized (cannot be a fabricated address)
+        let authorized: Vec<Address> = env.storage().instance()
+            .get(&DataKey::AuthorizedStrategies)
+            .unwrap_or(Vec::new(&env));
+        if !authorized.contains(&metadata.strategy_address) {
+            panic!("Strategy address is not authorized");
+        }
 
         // Store strategy metadata
         env.storage().instance().set(
@@ -313,8 +289,6 @@ impl StrategyBoundaryContract {
                 actor: env.current_contract_address(),
                 strategy_id: metadata.strategy_id,
                 risk_level: metadata.risk_level,
-                provenance: registration.provenance,
-                registered_at: registration.registered_at,
             },
         );
     }
@@ -341,6 +315,17 @@ impl StrategyBoundaryContract {
         );
     }
 
+    pub fn authorize_strategy_address(env: Env, strategy_address: Address) {
+        Self::check_strategy_admin(&env);
+        let mut authorized: Vec<Address> = env.storage().instance()
+            .get(&DataKey::AuthorizedStrategies)
+            .unwrap_or(Vec::new(&env));
+        if !authorized.contains(&strategy_address) {
+            authorized.push_back(strategy_address);
+            env.storage().instance().set(&DataKey::AuthorizedStrategies, &authorized);
+        }
+    }
+
     pub fn is_strategy_disabled(env: Env, strategy_id: BytesN<32>) -> bool {
         env.storage().instance()
             .get(&DataKey::DisabledStrategy(strategy_id))
@@ -363,10 +348,6 @@ impl StrategyBoundaryContract {
         let metadata: StrategyMetadata = env.storage().instance()
             .get(&DataKey::StrategyMetadata(strategy_id.clone()))
             .expect("Strategy not found");
-
-        // Ensure strategy is registered in authoritative registry
-        Self::get_strategy_registration(&env, &metadata.strategy_address)
-            .expect("Strategy contract address is not registered");
 
         // Check allocation limits
         let limits = Self::get_allocation_limits(&env);
@@ -432,10 +413,6 @@ impl StrategyBoundaryContract {
         let metadata: StrategyMetadata = env.storage().instance()
             .get(&DataKey::StrategyMetadata(strategy_id.clone()))
             .expect("Strategy not found");
-
-        // Ensure strategy is registered in authoritative registry
-        Self::get_strategy_registration(&env, &metadata.strategy_address)
-            .expect("Strategy contract address is not registered");
 
         // Check user has allocation
         let user_alloc = Self::get_user_allocation(&env, user.clone(), strategy_id.clone());
