@@ -20,6 +20,10 @@ The current simulation stack provides basic capabilities for local testing with 
 - **Fidelity_Validator**: A component that compares simulation results against real network behavior to measure accuracy
 - **Dry_Run**: A complete simulation of an operation without executing it on the live network
 - **Pre_Execution_Environment**: The hardened simulation stack that provides trustworthy execution previews
+- **Entity_Resolver**: The component that resolves assets, contracts, and protocol capabilities through authoritative registries and binds resolved identifiers into execution plans
+- **Authoritative_Registry**: A trusted, versioned source of truth for assets, contracts, and protocol capabilities
+- **Registry_Provenance**: Metadata identifying the registry source, version, and retrieval timestamp for a resolved entity
+- **Resolved_Identifier**: The canonical registry-bound identifier assigned to an entity after successful resolution
 
 ## Requirements
 
@@ -193,17 +197,14 @@ The current simulation stack provides basic capabilities for local testing with 
 
 ### Requirement 13: Entity Resolution and Registry Validation
 
-**User Story:** As an operator, I want every asset, contract, network, and protocol capability referenced in a simulation or execution request to be resolved through authoritative registries before it can be used, so that hallucinated or unverified names never reach execution.
+**User Story:** As an operator, I want every asset, contract, and protocol capability referenced in a simulation or execution plan to be resolved through authoritative registries, so that hallucinated or spoofed entities cannot reach simulation or execution.
 
 #### Acceptance Criteria
 
-1. THE Simulation_Engine SHALL resolve every asset, contract, network, adapter capability, and protocol capability through an applicable authoritative registry before including it in any simulation or execution plan
-2. WHEN an entity cannot be resolved to a unique registry entry, THE Simulation_Engine SHALL reject the plan and SHALL NOT proceed to simulation or execution
-3. WHEN an entity symbol is ambiguous, THE Simulation_Engine SHALL present the candidate registry entries to the user and SHALL require explicit selection before proceeding
-4. THE resolved identifier (ticker, issuer, contract address, network, capability) SHALL be bound into the plan and used for all subsequent simulation and execution steps
-5. THE approval data SHALL include registry provenance for each resolved entity, including registry name, entry identifier, and registry record version
-6. THE approval data SHALL include registry freshness metadata, including last verification timestamp and freshness status (VALID, STALE, UNVERIFIED)
-7. WHEN an entity fails freshness validation, THE Simulation_Engine SHALL reject the plan or require explicit operator approval before proceeding
-8. Adversarial tests SHALL cover look-alike symbols and fabricated contract addresses to verify rejection
-9. Adversarial tests SHALL cover fabricated network, issuer, and adapter capability identifiers to verify rejection
-10. THE Simulation_Engine SHALL reject any plan that contains an entity not resolved through an authoritative registry
+1. THE Entity_Resolver SHALL resolve every executable entity (asset, contract, protocol capability, or adapter) through an Authoritative_Registry before the entity is used in simulation or execution
+2. WHEN an asset, contract, or protocol capability name cannot be resolved through an Authoritative_Registry, THE Simulation_Engine SHALL reject the operation and SHALL NOT allow it to reach simulation or execution
+3. WHEN a name or symbol resolves to multiple candidate entities, THE Simulation_Engine SHALL require explicit user selection and SHALL NOT proceed with an ambiguous match
+4. THE Simulation_Engine SHALL bind the Resolved_Identifier for every resolved entity into the execution plan and Execution_Trace
+5. THE execution preview and all approval data SHALL include Registry_Provenance and registry freshness (source, version, retrieval timestamp, and refresh threshold) for every resolved entity
+6. THE validation suite SHALL include adversarial tests for look-alike symbols and fabricated addresses and SHALL verify that these are rejected unless they resolve to a matching Authoritative_Registry entry
+7. THE Entity_Resolver SHALL refresh registry data according to each registry's freshness policy and SHALL refuse stale registry data for authoritative resolution
