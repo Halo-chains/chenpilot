@@ -57,6 +57,7 @@ pub enum DataKey {
     Deposit(Address),
     ForceExit(Address),
     VaultToken,
+    Asset(Symbol),
     // Upgrade mode flag
     UpgradeMode,
 }
@@ -208,10 +209,28 @@ impl CoreVaultContract {
         env.storage().instance().set(&DataKey::UnifiedAuth, &unified_auth);
         env.storage().instance().set(&DataKey::BackendOnline, &true);
         env.storage().instance().set(&DataKey::UpgradeMode, &false);
+
+        // Register the initial token in the asset registry
+        let token_client = token::Client::new(&env, &vault_token);
+        let token_symbol = token_client.symbol();
+        env.storage().instance().set(&DataKey::Asset(token_symbol), &vault_token);
+
         env.events().publish(
             (EVT_INIT,),
             admin.clone(),
         );
+    }
+
+    /// Resolve an asset symbol to its registered address. Fails if the symbol is unknown.
+    pub fn resolve_asset(env: Env, symbol: Symbol) -> Address {
+        let key = DataKey::Asset(symbol.clone());
+        unwrap_or_fail(&env, env.storage().instance().get(&key), FailureReason::StorageValueMissing)
+    }
+
+    /// Register an asset symbol to address mapping. Vault or emergency admin only.
+    pub fn register_asset(env: Env, symbol: Symbol, address: Address) {
+        Self::require_vault_or_emergency_admin(&env);
+        env.storage().instance().set(&DataKey::Asset(symbol), &address);
     }
 
     // ── Backend status ────────────────────────────────────────────────────────
@@ -302,6 +321,12 @@ impl CoreVaultContract {
         let vault_token: Address =
             unwrap_or_fail(&env, env.storage().instance().get(&DataKey::VaultToken), FailureReason::StorageValueMissing);
         let token_client = token::Client::new(&env, &vault_token);
+        // Ensure the token is the canonical, registered asset for its symbol
+        let token_symbol = token_client.symbol();
+        let resolved = Self::resolve_asset(env.clone(), token_symbol.clone());
+        if resolved != vault_token {
+            fail(&env, FailureReason::StorageValueMissing);
+        }
         token_client.transfer(&user, &env.current_contract_address(), &amount);
 
         let current: i128 = env.storage().persistent()
@@ -348,6 +373,12 @@ impl CoreVaultContract {
         let vault_token: Address =
             unwrap_or_fail(&env, env.storage().instance().get(&DataKey::VaultToken), FailureReason::StorageValueMissing);
         let token_client = token::Client::new(&env, &vault_token);
+        // Ensure the token is the canonical, registered asset for its symbol
+        let token_symbol = token_client.symbol();
+        let resolved = Self::resolve_asset(env.clone(), token_symbol.clone());
+        if resolved != vault_token {
+            fail(&env, FailureReason::StorageValueMissing);
+        }
         token_client.transfer(&env.current_contract_address(), &user, &amount);
 
         env.events().publish(
