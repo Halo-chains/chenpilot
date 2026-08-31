@@ -26,6 +26,19 @@ pub struct StrategyMetadata {
     pub audit_expiry: u64,
 }
 
+#[contracttype]
+#[derive(Clone)]
+pub struct RegistryEntry {
+    pub strategy_id: BytesN<32>,
+    pub symbol: soroban_sdk::Symbol,
+    pub strategy_address: Address,
+    pub network: soroban_sdk::Symbol,
+    pub issuer: Address,
+    pub registry_version: u32,
+    pub registered_at: u64,
+    pub expires_at: u64,
+}
+
 // ─── Allocation Limits ─────────────────────────────────────────────────────
 
 #[contracttype]
@@ -97,6 +110,8 @@ pub enum DataKey {
     WithdrawalRequest(Address),
     StrategyHealth(BytesN<32>),
     DisabledStrategy(BytesN<32>),
+    Registry,
+    RegistryVersion,
     ActiveStrategies,
 }
 
@@ -129,6 +144,8 @@ pub struct EvtStrategyRegistered {
     pub actor: Address,
     pub strategy_id: BytesN<32>,
     pub risk_level: RiskLevel,
+    pub registry_version: u32,
+    pub registry_timestamp: u64,
 }
 
 #[contracttype]
@@ -237,6 +254,44 @@ impl StrategyBoundaryContract {
         );
     }
 
+    pub fn set_registry_entry(env: Env, mut entry: RegistryEntry) {
+        Self::check_strategy_admin(&env);
+
+        let current_version: u32 = env.storage().instance()
+            .get(&DataKey::RegistryVersion)
+            .unwrap_or(0);
+        let next_version = current_version + 1;
+        entry.registry_version = next_version;
+        entry.registered_at = env.ledger().timestamp();
+        env.storage().instance().set(&DataKey::RegistryVersion, &next_version);
+
+        let mut registry: Map<BytesN<32>, RegistryEntry> = env.storage().instance()
+            .get(&DataKey::Registry)
+            .unwrap_or(Map::new(&env));
+        registry.set(entry.strategy_id.clone(), entry.clone());
+        env.storage().instance().set(&DataKey::Registry, &registry);
+    }
+
+    pub fn get_registry_entry(env: Env, strategy_id: BytesN<32>) -> Option<RegistryEntry> {
+        let registry: Map<BytesN<32>, RegistryEntry> = env.storage().instance()
+            .get(&DataKey::Registry)
+            .unwrap_or(Map::new(&env));
+        registry.get(strategy_id)
+    }
+
+    pub fn resolve_strategy_symbol(env: Env, symbol: soroban_sdk::Symbol) -> Vec<RegistryEntry> {
+        let registry: Map<BytesN<32>, RegistryEntry> = env.storage().instance()
+            .get(&DataKey::Registry)
+            .unwrap_or(Map::new(&env));
+        let mut results = Vec::new(&env);
+        for entry in registry.values().iter() {
+            if entry.symbol == symbol {
+                results.push_back(entry.clone());
+            }
+        }
+        results
+    }
+
     // ─── Strategy Management ───────────────────────────────────────────────
 
     pub fn register_strategy(
@@ -245,6 +300,25 @@ impl StrategyBoundaryContract {
         auditor_signature: BytesN<64>
     ) {
         Self::check_strategy_admin(&env);
+
+        // Resolve executable entity through the authoritative registry
+        let registry: Map<BytesN<32>, RegistryEntry> = env.storage().instance()
+            .get(&DataKey::Registry)
+            .unwrap_or(Map::new(&env));
+        let registry_entry = registry
+            .get(metadata.strategy_id.clone())
+            .expect("Strategy ID is not in the authoritative registry");
+
+        if registry_entry.strategy_address != metadata.strategy_address {
+            panic!("Strategy address does not match registry");
+        }
+
+        if env.ledger().timestamp() > registry_entry.expires_at {
+            panic!("Registry entry expired");
+        }
+
+        let mut metadata = metadata;
+        metadata.strategy_address = registry_entry.strategy_address.clone();
 
         // Validate audit report is current
         if env.ledger().timestamp() > metadata.audit_expiry {
@@ -277,6 +351,8 @@ impl StrategyBoundaryContract {
                 actor: env.current_contract_address(),
                 strategy_id: metadata.strategy_id,
                 risk_level: metadata.risk_level,
+                registry_version: registry_entry.registry_version,
+                registry_timestamp: registry_entry.registered_at,
             },
         );
     }
