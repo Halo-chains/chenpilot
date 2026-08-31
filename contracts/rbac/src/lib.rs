@@ -1,5 +1,5 @@
 #![no_std]
-use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Env, Address};
+use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Env, Address, Symbol};
 use contract_failure::{fail, FailureReason};
 
 /// The three roles this contract manages.
@@ -19,6 +19,16 @@ pub enum DataKey {
     SuperAdmin,
     /// (Address, Role) -> bool
     HasRole(Address, Role),
+    /// Symbol -> AssetRegistration
+    Asset(Symbol),
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub struct AssetRegistration {
+    pub contract: Address,
+    pub registered_at: u32,
+    pub registered_by: Address,
 }
 
 // ── Event data ────────────────────────────────────────────────────────────────
@@ -157,6 +167,38 @@ impl RbacContract {
                 new_admin,
             },
         );
+    }
+
+    /// Register a canonical symbol for an asset contract.
+    /// Only the super-admin can add or update entries.
+    pub fn register_asset(env: Env, symbol: Symbol, contract: Address) {
+        let admin = Self::super_admin(&env);
+        admin.require_auth();
+        let registration = AssetRegistration {
+            contract: contract.clone(),
+            registered_at: env.ledger().sequence(),
+            registered_by: admin.clone(),
+        };
+        env.storage().persistent().set(&DataKey::Asset(symbol), &registration);
+    }
+
+    /// Resolve a canonical symbol to its registered contract address.
+    /// Fails if the symbol is not registered, preventing hallucinated symbols.
+    pub fn resolve_asset(env: Env, symbol: Symbol) -> Address {
+        let registration = env
+            .storage()
+            .persistent()
+            .get::<DataKey, AssetRegistration>(&DataKey::Asset(symbol))
+            .unwrap_or_else(|| fail(&env, FailureReason::Unauthorized));
+        registration.contract
+    }
+
+    /// Get the full registration record for approval/provenance purposes.
+    pub fn get_asset_registration(env: Env, symbol: Symbol) -> AssetRegistration {
+        env.storage()
+            .persistent()
+            .get::<DataKey, AssetRegistration>(&DataKey::Asset(symbol))
+            .unwrap_or_else(|| fail(&env, FailureReason::Unauthorized))
     }
 
     // ── Role-gated action helpers ─────────────────────────────────────────────
