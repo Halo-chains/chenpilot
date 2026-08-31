@@ -310,3 +310,18 @@ This document specifies requirements for evolving the existing basic prompt vers
 3. THE Version_Control_System SHALL allow gradually migrating existing versions to use new features
 4. THE Version_Control_System SHALL maintain backward compatibility with existing API endpoints
 5. THE Version_Control_System SHALL support both legacy weight-based routing and new policy-based routing simultaneously
+
+### Requirement 21: Hallucinated Asset, Contract, and Protocol Capability Rejection
+
+**User Story:** As a platform operator, I want the system to resolve every executable entity through authoritative registries and bind resolved identifiers into deployment plans, so that hallucinated tickers, issuers, contract addresses, networks, protocol capabilities, and adapter capabilities are rejected before simulation or execution.
+
+#### Acceptance Criteria
+
+1. THE Version_Control_System SHALL resolve every executable asset, issuer, contract, network, protocol capability, and adapter capability referenced by a Prompt_Version or Agent_Version through an authoritative registry before allowing activation
+2. IF an entity cannot be resolved in an authoritative registry, THEN THE Version_Control_System SHALL reject the version activation and return an unresolved-entity error identifying the exact field and value
+3. THE Version_Control_System SHALL bind the resolved registry identifier (canonical ID, address, or capability ID) into the deployment plan, so downstream simulation and execution reference only the resolved identifier
+4. WHEN a symbol resolves to multiple entities in an authoritative registry, THE Version_Control_System SHALL require explicit user selection of the intended entity before activation
+5. THE Version_Control_System SHALL include registry provenance (registry name, entry version, retrieval timestamp, and freshness status) in approval data for every resolved entity
+6. THE Version_Control_System SHALL reject or re-resolve entities whose registry record is stale or suspected of tampering, and SHALL surface freshness failures in approval data
+7. THE Version_Control_System SHALL include adversarial tests covering look-alike symbols (e.g., visually similar tickers and Unicode homoglyphs) and fabricated contract addresses to ensure they are rejected
+8. THE Version_Control_System SHALL prevent unresolved names from reaching simulation or execution by enforcing resolution at plan creation and re-validating at activation
