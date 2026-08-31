@@ -190,3 +190,20 @@ The current simulation stack provides basic capabilities for local testing with 
 5. THE Execution_Trace SHALL use efficient data structures to minimize memory overhead
 6. THE Simulation_Engine SHALL provide performance metrics including operation throughput and average latency
 7. WHEN performance degrades below thresholds, THE Simulation_Engine SHALL log warnings and suggest optimization actions
+
+### Requirement 13: Entity Resolution and Registry Validation
+
+**User Story:** As an operator, I want every asset, contract, network, and protocol capability referenced in a simulation or execution request to be resolved through authoritative registries before it can be used, so that hallucinated or unverified names never reach execution.
+
+#### Acceptance Criteria
+
+1. THE Simulation_Engine SHALL resolve every asset, contract, network, adapter capability, and protocol capability through an applicable authoritative registry before including it in any simulation or execution plan
+2. WHEN an entity cannot be resolved to a unique registry entry, THE Simulation_Engine SHALL reject the plan and SHALL NOT proceed to simulation or execution
+3. WHEN an entity symbol is ambiguous, THE Simulation_Engine SHALL present the candidate registry entries to the user and SHALL require explicit selection before proceeding
+4. THE resolved identifier (ticker, issuer, contract address, network, capability) SHALL be bound into the plan and used for all subsequent simulation and execution steps
+5. THE approval data SHALL include registry provenance for each resolved entity, including registry name, entry identifier, and registry record version
+6. THE approval data SHALL include registry freshness metadata, including last verification timestamp and freshness status (VALID, STALE, UNVERIFIED)
+7. WHEN an entity fails freshness validation, THE Simulation_Engine SHALL reject the plan or require explicit operator approval before proceeding
+8. Adversarial tests SHALL cover look-alike symbols and fabricated contract addresses to verify rejection
+9. Adversarial tests SHALL cover fabricated network, issuer, and adapter capability identifiers to verify rejection
+10. THE Simulation_Engine SHALL reject any plan that contains an entity not resolved through an authoritative registry
